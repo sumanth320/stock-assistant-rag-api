@@ -21,4 +21,5 @@ class Logger:
         return self.trace
 
     def print(self):
-        print(json.dumps(self.trace, indent=2))
+        # default=str avoids runtime failures for uncommon non-JSON-native objects.
+        print(json.dumps(self.trace, indent=2, default=str))

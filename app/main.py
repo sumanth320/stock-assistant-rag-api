@@ -27,6 +27,8 @@ def ask(request: AskRequest):
 
     routed = route_query(request.question)
     logger.log("route_decision", routed["route"])
+    if "debug" in routed:
+        logger.log("routing_debug", routed["debug"])
 
     if routed["route"] == "clarify":
         logger.log("final_status", "clarify")
@@ -34,7 +36,8 @@ def ask(request: AskRequest):
         logger.print()
 
         return {
-            "message": routed["message"]
+            "message": routed["message"],
+            "debug": routed.get("debug")
         }
 
     messages = build_prompt(
@@ -51,5 +54,6 @@ def ask(request: AskRequest):
 
     return {
         "route": routed["route"],
-        "answer": answer
+        "answer": answer,
+        "debug": routed.get("debug")
     }

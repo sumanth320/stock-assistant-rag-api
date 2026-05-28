@@ -9,4 +9,4 @@ RAG_CONFIG = {
     "min_top1_score": 0.55,
 }
 
-HIGH_CONFIDENCE = 0.60
+HIGH_CONFIDENCE = 0.50
