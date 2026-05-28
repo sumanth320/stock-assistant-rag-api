@@ -6,36 +6,43 @@ An AI-powered stock assistant built with FastAPI that supports:
 - **Live stock quote retrieval** via **Finnhub API**
 - **RAG (Retrieval-Augmented Generation)** over custom trading education documents
 - **LLM response generation** using **Ollama** (`llama3:latest`)
+- **Optional routing debug metadata** for route decisions
 
 ---
 
 ## Features
 
-- Smart query routing based on semantic similarity (`sentence-transformers`)
+- Semantic routing with `sentence-transformers`
 - Dynamic route handling:
   - **tool** -> real-time stock data from Finnhub
   - **rag** -> answers grounded in indexed local documents (ChromaDB)
   - **direct** -> general LLM response
   - **clarify** -> asks follow-up when input is ambiguous
 - Local vector database with **ChromaDB**
-- Simple API interface through a single endpoint: `POST /ask`
+- API endpoint: `POST /ask`
+- Streamlit UI for quick testing
 
 ---
 
 ## Project Structure
 
 ```text
-app/
-  config.py
-  index_documents.py
-  llm_client.py
-  main.py
-  orchestrator.py
-  prefilter.py
-  prompt_builder.py
-  rag.py
-  requirements.txt
-  tools.py
+stock-assistant-rag-api/
+  app/
+    config.py
+    index_documents.py
+    llm_client.py
+    logger.py
+    main.py
+    orchestrator.py
+    prefilter.py
+    prompt_builder.py
+    rag.py
+    requirements.txt
+    tools.py
+  ui/
+    streamlit_app.py
+  chroma_db/
 ```
 
 ---
@@ -43,11 +50,10 @@ app/
 ## End-to-End Flow
 
 1. Client sends a question to `POST /ask`
-2. `route_query()` in `app/orchestrator.py` decides route:
-   - `tool`, `rag`, `direct`, or `clarify`
+2. `route_query()` in `app/orchestrator.py` selects route (`tool`, `rag`, `direct`, `clarify`)
 3. `build_prompt()` in `app/prompt_builder.py` creates route-specific prompt
 4. `generate_response()` in `app/llm_client.py` calls Ollama
-5. API returns final answer (or a clarify message)
+5. API returns final answer or clarify message
 
 ---
 
@@ -66,7 +72,7 @@ app/
 
 ```bash
 git clone <your-repo-url>
-cd llmops-assistant
+cd stock-assistant-rag-api
 ```
 
 ### 2) Create and activate virtual environment
@@ -86,17 +92,15 @@ pip install -r app/requirements.txt
 
 ```bash
 cat > .env << 'EOF'
-FINNHUB_API_KEY=<your-local-key>
+FINNHUB_API_KEY=<your-valid-key>
 EOF
 ```
 
-Optional: If you see Hugging Face unauthenticated warnings while downloading embedding models, you can set `HF_TOKEN`. It is not required for normal local use.
+Optional: If you see Hugging Face unauthenticated warnings while downloading embedding models, you can set `HF_TOKEN`.
 
 ---
 
 ## Index RAG Documents (one-time or when docs change)
-
-Run the indexing script to populate local ChromaDB:
 
 ```bash
 python app/index_documents.py
@@ -139,6 +143,12 @@ Server runs on:
 - `http://127.0.0.1:8000`
 - Swagger docs: `http://127.0.0.1:8000/docs`
 
+### 4) Start Streamlit UI (new terminal)
+
+```bash
+streamlit run ui/streamlit_app.py
+```
+
 ---
 
 ## API Usage
@@ -152,8 +162,8 @@ Server runs on:
 ```json
 {
   "question": "What is AAPL stock price?",
-  "user_id": "<user_id>",
-  "session_id": "<session_id>"
+  "user_id": "demo-user",
+  "session_id": "session-123"
 }
 ```
 
@@ -162,7 +172,7 @@ Server runs on:
 ```bash
 curl -X POST http://127.0.0.1:8000/ask \
   -H "Content-Type: application/json" \
-  -d '{"question":"What is AAPL stock price?","user_id":"<user_id>","session_id":"<session_id>"}'
+  -d '{"question":"What is AAPL stock price?","user_id":"demo-user","session_id":"session-123"}'
 ```
 
 ### Possible response patterns
@@ -172,7 +182,11 @@ curl -X POST http://127.0.0.1:8000/ask \
 ```json
 {
   "route": "tool",
-  "answer": "According to the supplied market data..."
+  "answer": "According to the supplied market data...",
+  "debug": {
+    "best_route": "tool",
+    "best_score": 0.58
+  }
 }
 ```
 
@@ -180,57 +194,83 @@ curl -X POST http://127.0.0.1:8000/ask \
 
 ```json
 {
-  "message": "Could you specify the stock symbol (e.g. AAPL)?"
+  "message": "Could you specify the stock symbol (e.g. AAPL)?",
+  "debug": {
+    "decision": "clarify_low_tool_confidence"
+  }
 }
 ```
+
+`debug` is optional and may not be present in all responses.
 
 ---
 
 ## Configuration Notes
 
-- `app/config.py` controls RAG thresholds and retrieval behavior
+- `app/config.py` controls confidence thresholds and RAG retrieval behavior
+- `HIGH_CONFIDENCE` is currently `0.50`
 - `app/prefilter.py` defines route example phrases used for semantic routing
 - `app/tools.py` handles ticker extraction + Finnhub calls
 - `app/rag.py` handles retrieval from ChromaDB
+- `app/logger.py` prints JSON trace logs in the FastAPI terminal
 
 ---
 
 ## Troubleshooting
 
-### `ModuleNotFoundError: chromadb`
-
-Install dependencies in your active virtual environment:
+### `Address already in use` on FastAPI startup
 
 ```bash
-pip install -r app/requirements.txt
+lsof -nP -iTCP:8000 -sTCP:LISTEN
+kill -15 <PID>
 ```
 
-### Finnhub returns invalid key (`401`)
-
-Check `.env`:
+If needed, force stop:
 
 ```bash
-FINNHUB_API_KEY=<your-valid-key>
+kill -9 <PID>
 ```
 
-No quotes, no spaces around `=`.
+Or use another port:
+
+```bash
+uvicorn app.main:app --reload --port 8001
+```
+
+### Finnhub key not loaded
+
+```bash
+python -c "from dotenv import load_dotenv; load_dotenv(); import os; print('FINNHUB_API_KEY set:', bool(os.getenv('FINNHUB_API_KEY')))"
+```
+
+If output is `False`, ensure `.env` is in project root and restart FastAPI.
 
 ### Stock response shows `0`
 
-Usually caused by invalid key, rate limiting, or request failure from provider. Verify key and test endpoint manually.
+Common causes: missing/invalid API key, request failure, or provider/rate-limit issues.
+
+Test provider directly:
+
+```bash
+curl -s "https://finnhub.io/api/v1/quote?symbol=AAPL&token=$FINNHUB_API_KEY"
+```
+
+### `requests.exceptions.JSONDecodeError` in Streamlit
+
+This usually means backend returned non-JSON (often HTTP 500). Check FastAPI terminal logs for traceback.
 
 ---
 
 ## Roadmap Ideas
 
 - Add conversation memory using `session_id`
-- Add robust error handling for provider failures/rate limits
-- Improve ticker/entity extraction
 - Add tests for route selection and tool integration
+- Improve ticker/entity extraction
+- Add robust provider error handling/rate-limit diagnostics
 - Add Docker support and CI
 
 ---
 
 ## License
 
-Add your preferred license (MIT/Apache-2.0/etc.).
+Add your preferred license (MIT / Apache-2.0 / etc.).
