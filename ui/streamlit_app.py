@@ -20,7 +20,7 @@ if st.button("Submit") and question:
 
     try:
         with st.spinner("Thinking..."):
-            response = requests.post(API_URL, json=payload, timeout=60)
+            response = requests.post(API_URL, json=payload, timeout=120)
     except requests.RequestException as exc:
         st.error(f"Request failed: {exc}")
     else:

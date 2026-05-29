@@ -105,6 +105,11 @@ def route_query(query: str):
         }
 
     k = get_dynamic_k(top1, top2)
+
+    for chunk in chunks[:k]:
+        print(chunk["chunk"])
+        print("=" * 50)
+
     debug["rag_dynamic_k"] = int(k)
     debug["decision"] = "rag"
 
